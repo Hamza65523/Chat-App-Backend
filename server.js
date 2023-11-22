@@ -221,8 +221,6 @@ io.on("connection", async (socket) => {
     });
   });
 
-  
-
   socket.on("file_message", async (data) => {
     console.log("Received message:", data);
   
@@ -301,18 +299,20 @@ let user = await OneToMany.findOne({
 });
 
 if(!user){
-   OneToMany.findByIdAndUpdate(groupId,{
-    $push:{members:user_id}
-},{
-    new:true
-}).exec((err,result)=>{
-    if(err){
-      console.error(`Group with ID ${groupId} not found.`);
-    }else{
-      io.emit('userJoinedGroup', result);
-      console.error(`user added in this group with ID ${groupId}.`);
-    }
-})
+  OneToMany.findOneAndUpdate(
+    { uid: groupId }, // Find the document with this group ID
+    { $push: { members: user_id } }, // Add the user_id to the 'members' array
+    { new: true, useFindAndModify: false } // Ensure 'new' option and prevent deprecated warnings
+  )
+    .exec((err, result) => {
+      if (err || !result) {
+        console.error(`Group with ID ${groupId} not found or an error occurred.`);
+      } else {
+        io.emit('userJoinedGroup', result);
+        console.log(`User added in this group with ID ${groupId}.`);
+      }
+    });
+  
 }else{
   console.error(`user already in group  ${user}.`);
   io.to(socket.id).emit('Unauthorized', { message: 'user already in group' });
@@ -424,12 +424,14 @@ socket.on('LeftUserFromGroup',async (groupId, userId) => {
 // sendMessage
 socket.on('sendMessage',async (groupId, text, originalMessage,user_id ) => {
   // Find the group by ID
-  const group = await OneToMany.find({uid:groupId});
+  console.log(groupId,user_id,'text',text)
+  const group = await OneToMany.findOne({uid:groupId});
   if (group) {
     // Construct the message object
     const newMessage = {
       username: user_id,
       text: text,
+      _id: user_id,
       timestamp: Date.now(),
     };
 
@@ -504,10 +506,23 @@ socket.on("group_file_message", async (data) => {
   fileStream.write(file.data, "base64");
   fileStream.end();
 });
-socket.on('sendFile', ({ groupId, fileUrl }) => {
-  io.to(groupId).emit('fileSent', {
-    fileUrl,
-  });
+
+socket.on("get_group_messages", async (data, callback) => {
+  try {
+    console.log('Fetching messages for group:', data.groupId);
+
+    const group = await OneToMany.findOne({ uid: data.groupId });
+
+    if (group) {
+      const messages = group.messages || [];
+      callback(messages);
+    } else {
+      callback([]); // Return an empty array if the group is not found or has no messages
+    }
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    callback([]); // Handle errors by returning an empty array
+  }
 });
   // -------------- HANDLE AUDIO CALL SOCKET EVENTS ----------------- //
 
